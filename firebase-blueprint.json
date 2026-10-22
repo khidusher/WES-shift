@@ -1,0 +1,197 @@
+{
+  "entities": {
+    "Registration": {
+      "title": "Registration",
+      "description": "Official SHIFT 1.0 delegate registration record",
+      "type": "object",
+      "properties": {
+        "ticketId": {
+          "type": "string",
+          "description": "Unique stable ticket identifier in format SHFT-XXXX-UENR",
+          "pattern": "^SHFT-[A-Z0-9]{4,8}-UENR$",
+          "maxLength": 32
+        },
+        "fullName": {
+          "type": "string",
+          "description": "Full name of the registered delegate",
+          "maxLength": 128
+        },
+        "email": {
+          "type": "string",
+          "description": "Email address of the delegate",
+          "format": "email",
+          "maxLength": 128
+        },
+        "phone": {
+          "type": "string",
+          "description": "Contact phone number",
+          "maxLength": 32
+        },
+        "category": {
+          "type": "string",
+          "description": "Delegate role or affiliation",
+          "maxLength": 64
+        },
+        "institution": {
+          "type": "string",
+          "description": "Academic department or university institution",
+          "maxLength": 128
+        },
+        "status": {
+          "type": "string",
+          "description": "Registration approval status",
+          "enum": ["confirmed", "pending", "cancelled"]
+        },
+        "checkedIn": {
+          "type": "boolean",
+          "description": "Whether the delegate has checked in at the venue"
+        },
+        "checkedInAt": {
+          "type": "string",
+          "description": "ISO timestamp of successful first check-in",
+          "maxLength": 64
+        },
+        "checkedInBy": {
+          "type": "string",
+          "description": "UID or identifier of staff member who scanned the ticket",
+          "maxLength": 128
+        },
+        "syncStatus": {
+          "type": "string",
+          "description": "Google Apps Script attendance sync status",
+          "enum": ["synced", "pending", "failed", "not_synced"]
+        },
+        "syncAttempts": {
+          "type": "number",
+          "description": "Number of sync dispatch attempts"
+        },
+        "lastSyncAttempt": {
+          "type": "string",
+          "description": "ISO timestamp of last synchronization attempt",
+          "maxLength": 64
+        },
+        "syncError": {
+          "type": "string",
+          "description": "Error message from last failed sync attempt",
+          "maxLength": 256
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of registration creation",
+          "maxLength": 64
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update",
+          "maxLength": 64
+        }
+      },
+      "required": ["ticketId", "fullName", "email", "status", "checkedIn"]
+    },
+    "AttendanceLog": {
+      "title": "AttendanceLog",
+      "description": "Auditable log of every ticket scan attempt",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique log record ID",
+          "maxLength": 128
+        },
+        "ticketId": {
+          "type": "string",
+          "description": "Ticket ID scanned",
+          "maxLength": 32
+        },
+        "attendeeName": {
+          "type": "string",
+          "description": "Name of attendee associated with ticket",
+          "maxLength": 128
+        },
+        "scannedAt": {
+          "type": "string",
+          "description": "ISO timestamp of scan",
+          "maxLength": 64
+        },
+        "scannedBy": {
+          "type": "string",
+          "description": "Secretariat operator ID",
+          "maxLength": 128
+        },
+        "status": {
+          "type": "string",
+          "description": "Outcome of scan event",
+          "enum": ["first_checkin", "duplicate_attempt", "invalid_ticket", "cancelled_ticket"]
+        },
+        "syncStatus": {
+          "type": "string",
+          "description": "Apps Script synchronization outcome",
+          "enum": ["synced", "pending", "failed", "not_applicable"]
+        },
+        "eventId": {
+          "type": "string",
+          "description": "Idempotency key for Google Apps Script sync",
+          "maxLength": 128
+        },
+        "notes": {
+          "type": "string",
+          "description": "Additional operator notes or verification details",
+          "maxLength": 256
+        }
+      },
+      "required": ["id", "ticketId", "scannedAt", "status"]
+    },
+    "SecretariatStaff": {
+      "title": "SecretariatStaff",
+      "description": "Authorized Secretariat console operator",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "User UID",
+          "maxLength": 128
+        },
+        "email": {
+          "type": "string",
+          "description": "Staff member email address",
+          "format": "email",
+          "maxLength": 128
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Staff member display name",
+          "maxLength": 128
+        },
+        "role": {
+          "type": "string",
+          "description": "Staff administrative role",
+          "enum": ["admin", "scanner", "supervisor"]
+        },
+        "active": {
+          "type": "boolean",
+          "description": "Whether account is currently active"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp",
+          "maxLength": 64
+        }
+      },
+      "required": ["uid", "email", "role", "active"]
+    }
+  },
+  "firestore": {
+    "/registrations/{registrationId}": {
+      "schema": "Registration",
+      "description": "Official delegate registrations with ticket IDs and check-in statuses"
+    },
+    "/attendance_logs/{logId}": {
+      "schema": "AttendanceLog",
+      "description": "Detailed audit log of attendance check-in events and sync statuses"
+    },
+    "/secretariat_staff/{staffId}": {
+      "schema": "SecretariatStaff",
+      "description": "Authorized Secretariat check-in operators and admins"
+    }
+  }
+}

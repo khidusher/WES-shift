@@ -1,0 +1,135 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email == 'arnoldodjidja01@gmail.com' && request.auth.token.email_verified == true)
+      );
+    }
+
+    function isSecretariatStaff() {
+      return isSignedIn() && (
+        isAdmin() ||
+        (exists(/databases/$(database)/documents/secretariat_staff/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/secretariat_staff/$(request.auth.uid)).data.active == true)
+      );
+    }
+
+    function isValidRegistration(data) {
+      return data.keys().hasAll(['ticketId', 'fullName', 'email', 'status', 'checkedIn']) &&
+        data.ticketId is string && data.ticketId.size() <= 32 && data.ticketId.matches('^SHFT-[A-Z0-9]{4,8}-UENR$') &&
+        data.fullName is string && data.fullName.size() <= 128 &&
+        data.email is string && data.email.size() <= 128 &&
+        (data.status == 'confirmed' || data.status == 'pending' || data.status == 'cancelled') &&
+        data.checkedIn is bool &&
+        (!('phone' in data) || (data.phone is string && data.phone.size() <= 32)) &&
+        (!('category' in data) || (data.category is string && data.category.size() <= 64)) &&
+        (!('institution' in data) || (data.institution is string && data.institution.size() <= 128)) &&
+        (!('checkedInAt' in data) || (data.checkedInAt is string && data.checkedInAt.size() <= 64)) &&
+        (!('checkedInBy' in data) || (data.checkedInBy is string && data.checkedInBy.size() <= 128)) &&
+        (!('syncStatus' in data) || (data.syncStatus in ['synced', 'pending', 'failed', 'not_synced'])) &&
+        (!('syncAttempts' in data) || (data.syncAttempts is number)) &&
+        (!('lastSyncAttempt' in data) || (data.lastSyncAttempt is string && data.lastSyncAttempt.size() <= 64)) &&
+        (!('syncError' in data) || (data.syncError is string && data.syncError.size() <= 256)) &&
+        (!('eventId' in data) || (data.eventId is string && data.eventId.size() <= 128)) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 256)) &&
+        (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64)) &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
+    }
+
+    function isValidAttendanceLog(data) {
+      return data.keys().hasAll(['id', 'ticketId', 'scannedAt', 'status']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.ticketId is string && data.ticketId.size() <= 32 &&
+        data.scannedAt is string && data.scannedAt.size() <= 64 &&
+        (data.status in ['first_checkin', 'duplicate_attempt', 'invalid_ticket', 'cancelled_ticket']) &&
+        (!('attendeeName' in data) || (data.attendeeName is string && data.attendeeName.size() <= 128)) &&
+        (!('scannedBy' in data) || (data.scannedBy is string && data.scannedBy.size() <= 128)) &&
+        (!('syncStatus' in data) || (data.syncStatus in ['synced', 'pending', 'failed', 'not_applicable'])) &&
+        (!('eventId' in data) || (data.eventId is string && data.eventId.size() <= 128)) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 256));
+    }
+
+    function isValidStaff(data) {
+      return data.keys().hasAll(['uid', 'email', 'role', 'active']) &&
+        data.uid is string && data.uid.size() <= 128 &&
+        data.email is string && data.email.size() <= 128 &&
+        (data.role in ['admin', 'scanner', 'supervisor']) &&
+        data.active is bool &&
+        (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 128)) &&
+        (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64));
+    }
+
+    // Official Event Registrations
+    match /registrations/{registrationId} {
+      // Individual ticket lookups by ID (e.g., delegate pass, entrance verification)
+      allow get: if isValidId(registrationId);
+      // Listing entire collection is restricted to Secretariat Staff and Admin
+      allow list: if isSecretariatStaff() || isAdmin();
+      
+      // Document creation (seed & registration):
+      allow create: if isValidId(registrationId) &&
+        isValidRegistration(incoming()) &&
+        incoming().ticketId == registrationId;
+
+      // Status update during check-in:
+      allow update: if isValidId(registrationId) &&
+        isValidRegistration(incoming()) &&
+        incoming().ticketId == existing().ticketId &&
+        (
+          isAdmin() ||
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'checkedIn', 'checkedInAt', 'checkedInBy', 'syncStatus', 'syncAttempts',
+            'lastSyncAttempt', 'syncError', 'updatedAt', 'eventId', 'notes'
+          ])
+        );
+
+      allow delete: if isValidId(registrationId) && isAdmin();
+    }
+
+    // Attendance Audit Logs
+    match /attendance_logs/{logId} {
+      allow get: if isValidId(logId);
+      allow list: if isSecretariatStaff() || isAdmin();
+      allow create: if isValidId(logId) && isValidAttendanceLog(incoming()) && incoming().id == logId;
+      allow update, delete: if isValidId(logId) && isAdmin();
+    }
+
+    // Secretariat Staff Directory
+    match /secretariat_staff/{staffId} {
+      allow get: if isValidId(staffId) && (isSecretariatStaff() || (isSignedIn() && request.auth.uid == staffId));
+      allow list: if isSecretariatStaff() || isAdmin();
+      allow create, update: if isValidId(staffId) && isValidStaff(incoming()) && isAdmin();
+      allow delete: if isValidId(staffId) && isAdmin();
+    }
+
+    // Admins Collection
+    match /admins/{adminId} {
+      allow read: if isValidId(adminId) && isSignedIn();
+      allow write: if false;
+    }
+  }
+}

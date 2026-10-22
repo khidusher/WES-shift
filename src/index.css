@@ -1,0 +1,102 @@
+@import "tailwindcss";
+
+@theme {
+  --color-neon: #7EE647;
+  --color-neon-hover: #90f05d;
+  --color-neon-dim: #5eb532;
+  --color-shift-black: #050505;
+  --color-shift-dark: #0a0b0a;
+  --color-shift-surface: #111311;
+  --color-shift-muted: #1d211d;
+
+  --font-display: 'Dela Gothic One', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans: 'Montserrat', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 5.5rem; /* Prevents sticky navbar from covering headings */
+  overflow-x: hidden;
+}
+
+body {
+  font-family: var(--font-sans), 'Montserrat', sans-serif;
+  background-color: #050505;
+  color: #FFFFFF;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.font-display {
+  font-family: var(--font-display), 'Dela Gothic One', sans-serif;
+  letter-spacing: -0.02em;
+}
+
+.font-body {
+  font-family: var(--font-sans), 'Montserrat', sans-serif;
+}
+
+/* Subtle grain overlay for cinematic texture */
+.cinematic-grain {
+  background-image: radial-gradient(rgba(126, 230, 71, 0.04) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+/* Smooth custom scrollbar for desktop */
+@media (min-width: 768px) {
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #050505;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #1c2419;
+    border-radius: 4px;
+    border: 1px solid rgba(126, 230, 71, 0.2);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #7EE647;
+  }
+}
+
+/* Safe area support for notched phones */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 1rem);
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 1rem);
+}
+
+/* High-Performance Rendering & Content Visibility */
+@supports (content-visibility: auto) {
+  #mentorship,
+  #speakers,
+  #countdown,
+  #venue {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 700px;
+  }
+}
+
+/* Hardware accelerated layer promotions for smooth scrolling */
+img {
+  transform: translateZ(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
