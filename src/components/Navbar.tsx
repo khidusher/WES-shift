@@ -52,8 +52,6 @@ export const Navbar: React.FC<NavbarProps> = ({
     { label: 'Pillars', href: '#pillars' },
     { label: 'Mentorship', href: '#mentorship' },
     { label: 'Speakers', href: '#speakers' },
-    { label: 'Countdown', href: '#countdown' },
-    { label: 'Venue', href: '#venue' },
   ];
 
   return (

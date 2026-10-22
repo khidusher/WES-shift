@@ -100,3 +100,27 @@ img {
     scroll-behavior: auto !important;
   }
 }
+
+/* Html5Qrcode Viewfinder styling */
+#qr-reader-viewport {
+  width: 100% !important;
+  height: 100% !important;
+  border: none !important;
+}
+
+#qr-reader-viewport video {
+  width: 100% !important;
+  height: 100% !important;
+  max-height: 380px !important;
+  object-fit: cover !important;
+  border-radius: 2px !important;
+}
+
+#qr-reader-viewport__scan_region {
+  background: transparent !important;
+}
+
+#qr-reader-viewport__dashboard_section {
+  display: none !important;
+}
+

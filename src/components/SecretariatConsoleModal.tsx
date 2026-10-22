@@ -78,6 +78,7 @@ export const SecretariatConsoleModal: React.FC<SecretariatConsoleModalProps> = (
 
   // Scanner State
   const [isScanning, setIsScanning] = useState<boolean>(false);
+  const [isStartingCamera, setIsStartingCamera] = useState<boolean>(false);
   const [cameras, setCameras] = useState<Array<{ id: string; label: string }>>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<string>('');
   const [cameraPermissionState, setCameraPermissionState] = useState<'prompt' | 'granted' | 'denied'>('prompt');
@@ -246,90 +247,205 @@ export const SecretariatConsoleModal: React.FC<SecretariatConsoleModalProps> = (
   // =========================================================================
   // CAMERA SCANNER CONTROLS (html5-qrcode)
   // =========================================================================
-  const initCameras = async () => {
+  // Safely enumerate cameras without crashing if permission is not yet granted
+  const enumerateCamerasSafely = async (): Promise<Array<{ id: string; label: string }>> => {
     try {
-      setCameraError(null);
       const devices = await Html5Qrcode.getCameras();
       if (devices && devices.length > 0) {
-        setCameras(devices);
-        setCameraPermissionState('granted');
-
-        // Prefer rear camera on mobile devices (contains 'back', 'rear', or 'environment')
-        const backCamera = devices.find((d) =>
-          d.label.toLowerCase().includes('back') ||
-          d.label.toLowerCase().includes('rear') ||
-          d.label.toLowerCase().includes('environment')
-        );
-        setSelectedCameraId(backCamera ? backCamera.id : devices[0].id);
-        return backCamera ? backCamera.id : devices[0].id;
-      } else {
-        setCameraError('No video cameras found on this device.');
-        setCameraPermissionState('denied');
-        return null;
+        const list = devices.map((d, index) => ({
+          id: d.id,
+          label: d.label || `Camera ${index + 1} (${d.id.substring(0, 6)})`,
+        }));
+        setCameras(list);
+        return list;
       }
-    } catch (err: any) {
-      console.warn('Camera enumeration error:', err);
-      setCameraPermissionState('denied');
-      setCameraError(
-        'Camera permission was denied or camera is unavailable. Please grant permission in browser settings or use manual ticket entry below.'
-      );
-      return null;
+    } catch (e) {
+      console.warn('Camera enumeration info:', e);
     }
+    return [];
   };
 
   const startScanner = async () => {
+    await startScannerWithCamera(selectedCameraId);
+  };
+
+  const startScannerWithCamera = async (targetCamId?: string) => {
     setCameraError(null);
-    let camId = selectedCameraId;
-    if (!camId) {
-      const detected = await initCameras();
-      if (!detected) return;
-      camId = detected;
+    setIsStartingCamera(true);
+
+    if (typeof window === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      setCameraError(
+        'Camera access is not supported by your browser or environment. Please use Manual Ticket Entry below.'
+      );
+      setIsStartingCamera(false);
+      return;
     }
 
     try {
+      // 1. Ensure any previous instance is stopped and cleared
       if (html5QrCodeRef.current) {
-        await stopScanner();
+        try {
+          if (html5QrCodeRef.current.isScanning) {
+            await html5QrCodeRef.current.stop();
+          }
+          html5QrCodeRef.current.clear();
+        } catch (stopErr) {
+          console.warn('Pre-scan stop error:', stopErr);
+        }
       }
 
-      const qrScanner = new Html5Qrcode('qr-reader-viewport');
+      // 2. Ensure container element exists
+      const container = document.getElementById('qr-reader-viewport');
+      if (!container) {
+        throw new Error('QR reader viewfinder was not found in the DOM.');
+      }
+
+      // 3. Prompt user for camera permission via getUserMedia if no cameras listed yet
+      if (cameras.length === 0) {
+        try {
+          const testStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: 'environment' } },
+          });
+          // Immediately stop test stream tracks so camera is released for Html5Qrcode
+          testStream.getTracks().forEach((track) => track.stop());
+          const discovered = await enumerateCamerasSafely();
+          if (discovered.length > 0 && !targetCamId && !selectedCameraId) {
+            const backCam = discovered.find((d) =>
+              d.label.toLowerCase().includes('back') ||
+              d.label.toLowerCase().includes('rear') ||
+              d.label.toLowerCase().includes('environment')
+            );
+            if (backCam) {
+              setSelectedCameraId(backCam.id);
+              targetCamId = backCam.id;
+            }
+          }
+        } catch (permErr: any) {
+          console.warn('Camera permission check result:', permErr);
+          if (permErr.name === 'NotAllowedError' || permErr.name === 'PermissionDeniedError') {
+            throw permErr;
+          }
+        }
+      }
+
+      // 4. Initialize Html5Qrcode instance
+      const qrScanner = new Html5Qrcode('qr-reader-viewport', {
+        verbose: false,
+        experimentalFeatures: {
+          useBarCodeDetectorIfSupported: true,
+        },
+      });
       html5QrCodeRef.current = qrScanner;
 
-      const config: Html5QrcodeCameraScanConfig = {
+      // 5. Dynamic responsive qrbox calculation that never overflows on small mobile screens
+      const qrboxConfig = (viewfinderWidth: number, viewfinderHeight: number) => {
+        const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+        const edge = Math.floor(minEdge * 0.72);
+        const dimension = Math.max(160, Math.min(edge, 280));
+        return { width: dimension, height: dimension };
+      };
+
+      const cameraConfig: Html5QrcodeCameraScanConfig = {
         fps: 15,
-        qrbox: { width: 250, height: 250 },
+        qrbox: qrboxConfig,
         aspectRatio: 1.0,
       };
 
-      await qrScanner.start(
-        camId,
-        config,
-        (decodedText) => {
-          handleScanSuccess(decodedText);
-        },
-        () => {
-          // Frame scan failure (no QR in frame); expected between scans
+      const chosenCameraId = targetCamId || selectedCameraId;
+
+      // 6. Start scanner with target camera ID or fallback facingModes
+      if (chosenCameraId) {
+        try {
+          await qrScanner.start(
+            chosenCameraId,
+            cameraConfig,
+            (decodedText) => handleScanSuccess(decodedText),
+            () => {}
+          );
+        } catch (camErr) {
+          console.warn('Specific camera ID failed, trying environment facingMode:', camErr);
+          await qrScanner.start(
+            { facingMode: 'environment' },
+            cameraConfig,
+            (decodedText) => handleScanSuccess(decodedText),
+            () => {}
+          );
         }
-      );
+      } else {
+        try {
+          // Attempt mobile rear camera first
+          await qrScanner.start(
+            { facingMode: 'environment' },
+            cameraConfig,
+            (decodedText) => handleScanSuccess(decodedText),
+            () => {}
+          );
+        } catch (rearErr) {
+          console.warn('Rear camera unavailable, falling back to front/user camera:', rearErr);
+          // Fallback to front/user camera (e.g. desktop webcams)
+          await qrScanner.start(
+            { facingMode: 'user' },
+            cameraConfig,
+            (decodedText) => handleScanSuccess(decodedText),
+            () => {}
+          );
+        }
+      }
 
       setIsScanning(true);
       setCameraPermissionState('granted');
+      // Update camera enumeration now that stream is active
+      enumerateCamerasSafely();
     } catch (err: any) {
       console.error('Failed to start scanner:', err);
-      setCameraError(err.message || 'Could not start camera feed.');
+      let message = err.message || 'Could not start camera feed.';
+      if (err.name === 'NotAllowedError' || message.includes('Permission denied')) {
+        message = 'Camera permission was denied. Tap the lock icon in your browser address bar to allow camera access, or use Manual Ticket Entry below.';
+      } else if (err.name === 'NotFoundError' || message.includes('Requested device not found')) {
+        message = 'No video camera detected on this device. Please use Manual Ticket Entry below.';
+      } else if (err.name === 'NotReadableError' || message.includes('Source error')) {
+        message = 'Camera is currently in use by another tab or app. Please close other camera apps and retry.';
+      }
+      setCameraError(message);
       setIsScanning(false);
+      setCameraPermissionState('denied');
+    } finally {
+      setIsStartingCamera(false);
     }
   };
 
   const stopScanner = async () => {
-    if (html5QrCodeRef.current && isScanning) {
+    if (html5QrCodeRef.current) {
       try {
-        await html5QrCodeRef.current.stop();
+        if (html5QrCodeRef.current.isScanning) {
+          await html5QrCodeRef.current.stop();
+        }
         html5QrCodeRef.current.clear();
       } catch (err) {
-        console.warn('Scanner stop error:', err);
+        console.warn('Scanner stop warning:', err);
       }
     }
     setIsScanning(false);
+  };
+
+  const handleCameraChange = async (newCamId: string) => {
+    setSelectedCameraId(newCamId);
+    if (isScanning) {
+      await stopScanner();
+      setTimeout(() => {
+        startScannerWithCamera(newCamId);
+      }, 250);
+    }
+  };
+
+  const handleFlipCamera = async () => {
+    if (cameras.length <= 1) return;
+    const currentIndex = cameras.findIndex((c) => c.id === selectedCameraId);
+    const nextIndex = (currentIndex + 1) % cameras.length;
+    const nextCam = cameras[nextIndex];
+    if (nextCam) {
+      await handleCameraChange(nextCam.id);
+    }
   };
 
   // Process Scanned Ticket ID
@@ -698,9 +814,9 @@ export const SecretariatConsoleModal: React.FC<SecretariatConsoleModalProps> = (
                           <select
                             id="cam-select"
                             value={selectedCameraId}
-                            onChange={(e) => setSelectedCameraId(e.target.value)}
-                            disabled={isScanning}
-                            className="bg-[#0c0d0c] border border-white/20 text-xs text-white px-2.5 py-1.5 font-mono focus:outline-none focus:border-[#7EE647] max-w-[220px] truncate"
+                            onChange={(e) => handleCameraChange(e.target.value)}
+                            disabled={isStartingCamera}
+                            className="bg-[#0c0d0c] border border-white/20 text-xs text-white px-2.5 py-1.5 font-mono focus:outline-none focus:border-[#7EE647] max-w-[200px] truncate"
                           >
                             {cameras.length > 0 ? (
                               cameras.map((c) => (
@@ -709,13 +825,33 @@ export const SecretariatConsoleModal: React.FC<SecretariatConsoleModalProps> = (
                                 </option>
                               ))
                             ) : (
-                              <option value="">Auto-Detect Camera</option>
+                              <option value="">Auto-Detect (Rear / Front)</option>
                             )}
                           </select>
+
+                          {cameras.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={handleFlipCamera}
+                              title="Flip Camera (Front/Rear)"
+                              className="p-1.5 bg-[#0c0d0c] hover:bg-white/10 text-neutral-300 hover:text-[#7EE647] border border-white/20 text-xs transition-colors cursor-pointer"
+                            >
+                              <RefreshCw className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-2">
-                          {!isScanning ? (
+                          {isStartingCamera ? (
+                            <button
+                              type="button"
+                              disabled
+                              className="inline-flex items-center gap-1.5 px-4 py-2 bg-neutral-800 text-neutral-300 text-xs font-bold uppercase tracking-wider cursor-wait"
+                            >
+                              <RefreshCw className="w-4 h-4 animate-spin text-[#7EE647]" />
+                              <span>Starting...</span>
+                            </button>
+                          ) : !isScanning ? (
                             <button
                               type="button"
                               onClick={startScanner}
